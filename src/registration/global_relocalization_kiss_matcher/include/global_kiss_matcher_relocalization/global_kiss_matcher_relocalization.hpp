@@ -25,6 +25,7 @@
 #include "tf2_ros/transform_listener.h"
 
 #include "slam/loop_closure.h"
+#include "global_kiss_matcher_relocalization/packet.hpp"
 
 namespace global_kiss_matcher_relocalization
 {
@@ -35,25 +36,36 @@ public:
   explicit GlobalKissMatcherRelocalizationNode(const rclcpp::NodeOptions & options);
 
 private:
+  void declareParameters();
+  kiss_matcher::LoopClosureConfig createLoopClosureConfig();
   void registeredPcdCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void loadGlobalMap(const std::string & file_name);
   void performRegistration();
   void publishTransform();
   void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
-  void preprocessTargetCloud();
+  bool tryKissAlignment(
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr & source_cloud,
+    Eigen::Isometry3d & pose_out,
+    size_t & inliers_out);
+  bool tryGicpAlignment(
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr & source_cloud,
+    const Eigen::Isometry3d & initial_guess,
+    Eigen::Isometry3d & pose_out);
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_sub_;
 
-  float global_leaf_size_;
-  float registered_leaf_size_;
-  float coarse_leaf_size_;
-  float medium_leaf_size_;
-  float fine_leaf_size_;
+  RelocState reloc_state_;  // 重定位状态机
+  double global_leaf_size_;
+  double registered_leaf_size_;
+  double coarse_leaf_size_;
+  double medium_leaf_size_;
+  double fine_leaf_size_;
 
   int num_threads_;
   int num_neighbors_;
-  float max_dist_sq_;
+  double max_dist_sq_;
+  double voxel_resolution_;
   std::vector<double> init_pose_;
 
   std::string map_frame_;
@@ -73,23 +85,9 @@ private:
   pcl::PointCloud<pcl::PointXYZ>::Ptr accumulated_cloud_;
 
   pcl::PointCloud<pcl::PointCovariance>::Ptr target_;
-  pcl::PointCloud<pcl::PointCovariance>::Ptr coarse_target_;
-  pcl::PointCloud<pcl::PointCovariance>::Ptr medium_target_;
-  pcl::PointCloud<pcl::PointCovariance>::Ptr fine_target_;
-
   pcl::PointCloud<pcl::PointCovariance>::Ptr source_;
-  pcl::PointCloud<pcl::PointCovariance>::Ptr coarse_source_;
-  pcl::PointCloud<pcl::PointCovariance>::Ptr medium_source_;
-  pcl::PointCloud<pcl::PointCovariance>::Ptr fine_source_;
 
   std::shared_ptr<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>> target_tree_;
-  std::shared_ptr<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>> coarse_target_tree_;
-  std::shared_ptr<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>> medium_target_tree_;
-  std::shared_ptr<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>> fine_target_tree_;
-
-  std::shared_ptr<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>> coarse_source_tree_;
-  std::shared_ptr<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>> medium_source_tree_;
-  std::shared_ptr<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>> fine_source_tree_;
   std::shared_ptr<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>> source_tree_;
 
   std::shared_ptr<
@@ -107,6 +105,13 @@ private:
   std::shared_ptr<kiss_matcher::LoopClosure> reg_module_;
   bool initial_aligned_ = false;
   bool use_global_initialization_;
+  bool use_kiss_recovery_;
+  bool verify_kiss_with_gicp_;
+  int gicp_fail_count_ = 0;
+  int gicp_max_consecutive_failures_;
+  int recovery_min_points_;
+  double recovery_cooldown_sec_;
+  rclcpp::Time last_recovery_attempt_time_;
 };
 
 }  // namespace global_kiss_matcher_relocalization
