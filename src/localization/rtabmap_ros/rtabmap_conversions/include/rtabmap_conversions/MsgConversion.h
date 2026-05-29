@@ -29,7 +29,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define MSGCONVERSION_H_
 
 #include "rclcpp/time.hpp"
+#ifdef PRE_ROS_IRON
+#include "tf2_ros/buffer.h"
+#else
 #include "tf2_ros/buffer.hpp"
+#endif
 #include <geometry_msgs/msg/transform.hpp>
 #include <geometry_msgs/msg/pose.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
