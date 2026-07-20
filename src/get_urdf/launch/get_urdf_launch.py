@@ -2,7 +2,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import ExecuteProcess
+from launch.actions import ExecuteProcess, TimerAction
 
 def generate_launch_description():
 
@@ -37,12 +37,25 @@ def generate_launch_description():
             parameters=[{'robot_description': robot_desc, 'use_sim_time': True}]),
 
         # 5. 在 Gazebo 中生成机器人，数据源指向 robot_description 话题
-        Node(
-            package='gazebo_ros',
-            executable='spawn_entity.py',
-            name='urdf_spawner',
-            output='screen',
-            arguments=['-entity', 'simple_car', '-topic', 'robot_description']),
+        # Give Gazebo time to finish loading the world before enqueueing the
+        # entity. Without this delay the factory service can be available while
+        # the world is still initializing, which makes spawn_entity report a
+        # timeout even though the model appears a few seconds later.
+        TimerAction(
+            period=5.0,
+            actions=[
+                Node(
+                    package='gazebo_ros',
+                    executable='spawn_entity.py',
+                    name='urdf_spawner',
+                    output='screen',
+                    arguments=[
+                        '-entity', 'simple_car',
+                        '-topic', 'robot_description',
+                        '-timeout', '60.0',
+                    ]),
+            ],
+        ),
 
         Node(
             package="rviz2",

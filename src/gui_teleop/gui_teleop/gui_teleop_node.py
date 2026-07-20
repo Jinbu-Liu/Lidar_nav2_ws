@@ -8,9 +8,11 @@ Apple 风格界面，WASD 控制，Shift 加速，空格急停
 import tkinter as tk
 import threading
 import random
+import signal
 from PIL import Image, ImageFilter, ImageDraw
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 
@@ -36,7 +38,7 @@ DIVIDER     = '#38383a'
 WIN_W, WIN_H = 780, 640
 
 
-def rounded_rect(canvas, x, y, w, h, r, fill, outline=''):
+def rounded_rect(canvas, x, y, w, h, r, fill, outline='', **kwargs):
     points = [
         x + r, y, x + r, y, x + w - r, y, x + w - r, y,
         x + w, y, x + w, y + r, x + w, y + r, x + w, y + h - r,
@@ -44,7 +46,8 @@ def rounded_rect(canvas, x, y, w, h, r, fill, outline=''):
         x + r, y + h, x + r, y + h, x, y + h, x, y + h - r,
         x, y + r, x, y + r, x, y,
     ]
-    canvas.create_polygon(points, fill=fill, outline=outline, smooth=True)
+    canvas.create_polygon(
+        points, fill=fill, outline=outline, smooth=True, **kwargs)
 
 
 def generate_blur_bg(w, h):
@@ -160,6 +163,8 @@ class TeleopGUI:
         self.root.resizable(False, False)
         self.root.geometry(f'{WIN_W}x{WIN_H}')
         self.root.protocol('WM_DELETE_WINDOW', self.on_close)
+        self._closing = False
+        signal.signal(signal.SIGINT, self._handle_sigint)
 
         # 生成高斯模糊背景
         self._bg_photo = self._make_bg()
@@ -169,7 +174,6 @@ class TeleopGUI:
         self._build_ui()
         self._bind_keys()
 
-        self.timer = self.node.create_timer(0.05, self.publish_cmd)
         self.tick()
 
     def _make_bg(self):
@@ -336,18 +340,23 @@ class TeleopGUI:
         slider.pack(fill='x', pady=(6, 0))
 
     def _bind_keys(self):
-        self.root.bind('<KeyPress>', self.on_key_press)
-        self.root.bind('<KeyRelease>', self.on_key_release)
+        # bind_all keeps WASD active after clicking a slider or another child widget.
+        self.root.bind_all('<KeyPress>', self.on_key_press)
+        self.root.bind_all('<KeyRelease>', self.on_key_release)
+        self.root.bind('<FocusOut>', self.on_focus_out)
         self.root.focus_set()
 
     def on_key_press(self, event):
         key = event.keysym.lower()
         if key in ('shift_l', 'shift_r'):
             self.pressed.add('shift')
-        elif key in ('w', 'a', 's', 'd', 'q', 'e', 'space'):
+        elif key in ('w', 'a', 's', 'd', 'q', 'e'):
             self.pressed.add(key)
-            if key == 'space':
+        elif key == 'space':
+            # Ignore keyboard auto-repeat so one press toggles E-stop only once.
+            if key not in self.pressed:
                 self.estop = not self.estop
+            self.pressed.add(key)
 
     def on_key_release(self, event):
         key = event.keysym.lower()
@@ -356,8 +365,17 @@ class TeleopGUI:
         else:
             self.pressed.discard(key)
 
+    def on_focus_out(self, event=None):
+        # Never keep sending a stale command after the window loses focus.
+        self.pressed.clear()
+        self.publish_cmd()
+
+    def _handle_sigint(self, signum, frame):
+        self.root.after_idle(self.on_close)
+
     def toggle_estop(self):
         self.estop = not self.estop
+        self.root.focus_set()
 
     def publish_cmd(self):
         self.max_linear = self.linear_var.get()
@@ -394,6 +412,10 @@ class TeleopGUI:
         self.node.publisher_.publish(msg)
 
     def tick(self):
+        # Tk variables must be read on the Tk main thread. Publishing from this
+        # 50 ms UI loop avoids accessing Tk from the rclpy spin thread.
+        self.publish_cmd()
+
         boost = 'shift' in self.pressed
 
         for key, widget in self.key_widgets.items():
@@ -454,10 +476,15 @@ class TeleopGUI:
         self.root.after(50, self.tick)
 
     def on_close(self):
+        if self._closing:
+            return
+        self._closing = True
+
         msg = Twist()
         self.node.publisher_.publish(msg)
+        if rclpy.ok():
+            rclpy.shutdown()
         self.node.destroy_node()
-        rclpy.shutdown()
         self.root.destroy()
 
     def run(self):
@@ -467,7 +494,14 @@ class TeleopGUI:
 def main(args=None):
     rclpy.init(args=args)
     node = GuiTeleopNode()
-    spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
+
+    def spin_node():
+        try:
+            rclpy.spin(node)
+        except ExternalShutdownException:
+            pass
+
+    spin_thread = threading.Thread(target=spin_node, daemon=True)
     spin_thread.start()
     gui = TeleopGUI(node)
     gui.run()

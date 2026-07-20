@@ -1,5 +1,7 @@
 #include "global_relocalization/global_relocalization.hpp"
 
+#include "ament_index_cpp/get_package_share_directory.hpp"
+
 namespace global_relocalization
 {
 GlobalRelocalization::GlobalRelocalization() : Node("global_relocalization")
@@ -15,7 +17,9 @@ GlobalRelocalization::GlobalRelocalization() : Node("global_relocalization")
   registered_leaf_size_ = 0.25;
   num_threads_ = 4;
   num_neighbors_ = 20;
-  prior_pcd_file_ = "/home/pio/Nav2_3D_ws/src/me_nav2_bringup/pcd/nav_test_4_27.pcd";
+  prior_pcd_file_ =
+    ament_index_cpp::get_package_share_directory("me_nav2_bringup") +
+    "/pcd/nav_test_4_27.pcd";
   
   // 初始化位姿
   // [x, y, z, roll, pitch, yaw] - init_pose parameters

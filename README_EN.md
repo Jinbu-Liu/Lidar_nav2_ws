@@ -32,24 +32,24 @@ TF tree: **`map` &rarr; `odom` &rarr; `base_footprint` &rarr; `chassis` &rarr; `
 
 - **Operating system**: Ubuntu 22.04
 - **ROS 2**: Humble Hawksbill
-- **Gazebo**: Fortress
+- **Gazebo**: Gazebo Classic 11 (launched through `gazebo_ros`)
 - **Livox-SDK2**: Required for real-robot mode; prebuilt under `src/livox_ros_driver2/3rdparty/`, with amd64/arm64 support
 
 ## 2. Build
 
 ```bash
-source /opt/ros/humble/setup.bash
-cd scripts
-./build.sh
+source scripts/setup_env.sh
+./scripts/build.sh
+source install/setup.bash
 ```
 
 The build script is equivalent to:
 
 ```bash
-colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_CUDA=OFF
 ```
 
-Rebuild after every source-code change. Before launching any node, make sure `source install/setup.bash` has been executed.
+Rebuild after every source-code change. Before launching a node manually, run `source scripts/setup_env.sh` followed by `source install/setup.bash`; project scripts load the former automatically.
 
 ## 3. Quick Start
 
@@ -64,16 +64,26 @@ cd scripts
 This command starts Gazebo, FAST-LIO, SLAM Toolbox, Nav2, and the GUI teleoperation window. Use the WASD keys to drive the robot through the environment. After enough area has been covered, save the maps:
 
 ```bash
-./save_map.sh       # Save the 2D occupancy grid map to src/me_nav2_bringup/map/
-./save_pcd.sh       # Save the 3D point cloud, then move it manually to src/me_nav2_bringup/pcd/
+./save_map.sh       # Save under src/me_nav2_bringup/map/ as YYYYMMDD_HHMMSS
+./save_pcd.sh       # Save directly under src/me_nav2_bringup/pcd/ as YYYYMMDD_HHMMSS.pcd
 ```
+
+Stop ROS 2/Gazebo programs launched for this workspace:
+
+```bash
+./stop_all.sh
+```
+
+Use `./stop_all.sh --dry-run` first to preview the matching processes.
+
+> Note: this stops every ROS Humble node the current user is allowed to terminate, including nodes outside this workspace.
 
 ### 3.2 Simulation Navigation
 
 Edit the following files so they point to the newly saved map and point cloud:
 
 - `src/me_nav2_bringup/launch/my_nav2_launch.py` - Set `map_yaml_file`
-- `src/registration/small_gicp_relocalization/launch/small_gicp_relocalization_launch.py` - Set `prior_pcd_file`
+- `src/registration/global_relocalization_kiss_matcher/launch/global_kiss_matcher_relocalization_launch.py` - Set `prior_pcd_file` for the default option (edit the corresponding launch file when switching to pure small_gicp)
 
 Then start:
 
@@ -100,7 +110,7 @@ cd scripts
 ./nav2_real.sh
 ```
 
-This includes `small_gicp_relocalization` and performs relocalization against a prior PCD map.
+This includes `global_relocalization_kiss_matcher` by default and performs global initialization plus continuous relocalization against a prior PCD map.
 
 ### 3.5 Global Relocalization: Three Options
 
@@ -126,7 +136,7 @@ Check the following carefully:
 
 Choose only one relocalization node at launch time. Only one node may publish `map` &rarr; `odom` at the same time.
 
-The pure small_gicp option is usually already integrated into the navigation scripts:
+The navigation scripts currently integrate KISS-Matcher + small_gicp by default:
 
 ```bash
 source install/setup.bash
@@ -136,19 +146,14 @@ cd scripts
 ./nav2_real.sh
 ```
 
-To use KISS-Matcher + small_gicp, first make sure `scripts/nav2_sim.sh` / `scripts/nav2_real.sh` does not also start `small_gicp_relocalization`, then start the global relocalization node separately:
+To switch to pure small_gicp, comment out the KISS-Matcher launch block and uncomment the small_gicp block in `scripts/nav2_sim.sh` / `scripts/nav2_real.sh`. Do not run both options at once.
 
 ```bash
 source install/setup.bash
 cd scripts
 
-# 1. Start the main simulation or real-robot navigation workflow
-./nav2_sim.sh
-# or
-./nav2_real.sh
-
-# 2. Start the KISS-Matcher global relocalization node
-ros2 launch global_relocalization_kiss_matcher global_kiss_matcher_relocalization_launch.py
+# Standalone pure small_gicp example (simulation)
+ros2 launch small_gicp_relocalization small_gicp_relocalization_launch.py use_sim_time:=true
 ```
 
 Check whether it succeeded:
@@ -162,7 +167,7 @@ When `KISSMatcher initialization succeeded` appears in the log, global initializ
 
 ## 4. Packages
 
-The workspace contains **19 ROS 2 packages** under `src/`:
+`colcon` currently discovers **33 ROS 2 packages**; the main workspace packages are listed below:
 
 **Odometry and Localization** (`src/localization/`)
 
@@ -243,7 +248,7 @@ FAST-LIO is used by default. To switch to Point-LIO, comment/uncomment the corre
 
 ### 5.4 Simulation and Real-Robot Differences
 
-Simulation mode replaces the Livox hardware driver with the Gazebo ray-sensor plugin and uses `get_urdf` instead of `gld_robot_description`. The LIO pipeline uses `use_sim_time=true` in simulation; Nav2 always uses `false`.
+Simulation mode replaces the Livox hardware driver with the Gazebo ray-sensor plugin and uses `get_urdf` instead of `gld_robot_description`. Simulation entry scripts consistently pass `use_sim_time=true`, while real-robot scripts pass `false`; FAST-LIO uses `lidar_type=5` for simulation and `4` for a real MID-360.
 
 ### 5.5 `global_relocalization_kiss_matcher` Parameters
 
@@ -275,7 +280,7 @@ Common parameters:
 Current workspace defaults in the launch file:
 
 ```text
-prior_pcd_file: /home/pio/Nav2_3D_ws/src/me_nav2_bringup/pcd/nav_test_4_27.pcd
+prior_pcd_file: <me_nav2_bringup share directory>/pcd/nav_test_4_27.pcd
 input_cloud_topic: /registered_scan
 map_frame: map
 odom_frame: odom

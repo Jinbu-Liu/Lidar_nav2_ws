@@ -19,6 +19,7 @@ def generate_launch_description():
 
     namespace = LaunchConfiguration("namespace")
     use_rviz = LaunchConfiguration("rviz")
+    use_sim_time = LaunchConfiguration("use_sim_time")
     point_lio_cfg_dir = LaunchConfiguration("point_lio_cfg_dir")
 
     point_lio_dir = get_package_share_directory("point_lio")
@@ -33,6 +34,12 @@ def generate_launch_description():
         "rviz", default_value="True", description="Flag to launch RViz."
     )
 
+    declare_use_sim_time = DeclareLaunchArgument(
+        "use_sim_time",
+        default_value="false",
+        description="Use simulation (Gazebo) clock if true",
+    )
+
     declare_point_lio_cfg_dir = DeclareLaunchArgument(
         "point_lio_cfg_dir",
         default_value=PathJoinSubstitution([point_lio_dir, "config", "mid360.yaml"]),
@@ -43,7 +50,7 @@ def generate_launch_description():
         package="point_lio",
         executable="pointlio_mapping",
         namespace=namespace,
-        parameters=[point_lio_cfg_dir],
+        parameters=[point_lio_cfg_dir, {"use_sim_time": use_sim_time}],
         remappings=remappings,
         output="screen",
     )
@@ -66,6 +73,7 @@ def generate_launch_description():
 
     ld.add_action(declare_namespace)
     ld.add_action(declare_rviz)
+    ld.add_action(declare_use_sim_time)
     ld.add_action(declare_point_lio_cfg_dir)
     ld.add_action(start_point_lio_node)
     ld.add_action(start_rviz_node)

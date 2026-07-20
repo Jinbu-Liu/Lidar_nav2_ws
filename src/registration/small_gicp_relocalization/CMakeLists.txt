@@ -37,6 +37,10 @@ if(NOT small_gicp_FOUND)
   fetchcontent_makeavailable(small_gicp)
 endif()
 
+if(TARGET small_gicp::small_gicp AND NOT TARGET small_gicp)
+  add_library(small_gicp ALIAS small_gicp::small_gicp)
+endif()
+
 ###########
 ## Build ##
 ###########

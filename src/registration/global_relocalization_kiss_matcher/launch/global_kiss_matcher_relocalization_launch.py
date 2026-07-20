@@ -1,8 +1,20 @@
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    use_sim_time = LaunchConfiguration("use_sim_time")
+    prior_pcd_file = os.path.join(
+        get_package_share_directory("me_nav2_bringup"),
+        "pcd",
+        "nav_test_4_27.pcd",
+    )
+
     remappings = [("/tf", "tf"), ("/tf_static", "tf_static")]
 
     node = Node(
@@ -13,6 +25,7 @@ def generate_launch_description():
         emulate_tty=True,
         remappings=remappings,
         parameters=[
+            {"use_sim_time": use_sim_time},
             {
                 "num_threads": 4,
                 "num_neighbors": 10,
@@ -33,10 +46,13 @@ def generate_launch_description():
                 "base_frame": "base_footprint",
                 "lidar_frame": "livox_frame",
                 "robot_base_frame": "base_footprint",
-                "prior_pcd_file": "/home/pio/Nav2_3D_ws/src/me_nav2_bringup/pcd/nav_test_4_27.pcd",
+                "prior_pcd_file": prior_pcd_file,
                 "input_cloud_topic": "/registered_scan",
             }
         ],
     )
 
-    return LaunchDescription([node])
+    return LaunchDescription([
+        DeclareLaunchArgument("use_sim_time", default_value="false"),
+        node,
+    ])

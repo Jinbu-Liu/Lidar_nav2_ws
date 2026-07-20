@@ -606,10 +606,10 @@ void publish_map(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub
     // pubLaserCloudMap->publish(laserCloudMap);
 }
 
-void save_to_pcd()
+int save_to_pcd()
 {
     pcl::PCDWriter pcd_writer;
-    pcd_writer.writeBinary(map_file_path, *pcl_wait_pub);
+    return pcd_writer.writeBinary(map_file_path, *pcl_wait_pub);
 }
 
 template<typename T>
@@ -1114,17 +1114,45 @@ private:
 
     void map_save_callback(std_srvs::srv::Trigger::Request::ConstSharedPtr req, std_srvs::srv::Trigger::Response::SharedPtr res)
     {
+        // Allow save_pcd.sh to select a timestamped output path at runtime.
+        this->get_parameter("map_file_path", map_file_path);
         RCLCPP_INFO(this->get_logger(), "Saving map to %s...", map_file_path.c_str());
-        if (pcd_save_en)
-        {
-            save_to_pcd();
-            res->success = true;
-            res->message = "Map saved.";
-        }
-        else
+        if (!pcd_save_en)
         {
             res->success = false;
             res->message = "Map save disabled.";
+        }
+        else if (map_file_path.empty())
+        {
+            res->success = false;
+            res->message = "Map file path is empty.";
+        }
+        else if (pcl_wait_pub->empty())
+        {
+            res->success = false;
+            res->message = "No point cloud data available to save.";
+        }
+        else
+        {
+            try
+            {
+                if (save_to_pcd() == 0)
+                {
+                    res->success = true;
+                    res->message = "Map saved to " + map_file_path;
+                }
+                else
+                {
+                    res->success = false;
+                    res->message = "Failed to write map to " + map_file_path;
+                }
+            }
+            catch (const std::exception& error)
+            {
+                RCLCPP_ERROR(this->get_logger(), "Failed to save map: %s", error.what());
+                res->success = false;
+                res->message = "Failed to save map: " + std::string(error.what());
+            }
         }
     }
 

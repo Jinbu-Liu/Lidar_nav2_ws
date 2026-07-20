@@ -1,8 +1,10 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 def generate_launch_description():
@@ -15,8 +17,9 @@ def generate_launch_description():
     map_yaml_file = os.path.join(me_share_path, 'map', 'nav_test_4_27.yaml')
     rviz_file = os.path.join(me_share_path, 'rviz', 'nav2.rviz')
     
-    # 是否使用仿真时间
-    use_sim_time = False # False 
+    # 是否使用仿真时间（由仿真/实机入口脚本显式传入）
+    use_sim_time = LaunchConfiguration('use_sim_time')
+    launch_map_server = LaunchConfiguration('launch_map_server')
 
     # 启动纯导航组件，不使用AMCL
     navigation_cmd = IncludeLaunchDescription(
@@ -25,7 +28,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'params_file': params_file,
-            'use_sim_time': str(use_sim_time),
+            'use_sim_time': use_sim_time,
             'autostart': 'True'
         }.items()
     )
@@ -33,6 +36,7 @@ def generate_launch_description():
     # 独立启动 Map Server
     # 加载静态地图，供 Global Costmap 使用
     map_server_cmd = Node(
+        condition=IfCondition(launch_map_server),
         package='nav2_map_server',
         executable='map_server',
         name='map_server',
@@ -44,6 +48,7 @@ def generate_launch_description():
     # 启动 Map Server 的生命周期管理器
     # 负责将 map_server 从 Unconfigured 状态推送到 Active 状态
     lifecycle_manager_map_cmd = Node(
+        condition=IfCondition(launch_map_server),
         package='nav2_lifecycle_manager',
         executable='lifecycle_manager',
         name='lifecycle_manager_map',
@@ -62,10 +67,17 @@ def generate_launch_description():
         name="rviz2",
         output="screen",
         arguments=["-d", rviz_file], 
+        parameters=[{'use_sim_time': use_sim_time}],
     )
 
     # 组合 LaunchDescription 返回
     ld = LaunchDescription()
+    ld.add_action(DeclareLaunchArgument('use_sim_time', default_value='false'))
+    ld.add_action(DeclareLaunchArgument(
+        'launch_map_server',
+        default_value='true',
+        description='Start the static map server; disable while SLAM Toolbox publishes /map',
+    ))
     ld.add_action(navigation_cmd)
     ld.add_action(map_server_cmd)
     ld.add_action(lifecycle_manager_map_cmd)

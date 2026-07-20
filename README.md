@@ -34,24 +34,24 @@ TF 坐标树：**`map` &rarr; `odom` &rarr; `base_footprint` &rarr; `chassis` &r
 
 - **操作系统**：Ubuntu 22.04
 - **ROS 2**：Humble Hawksbill
-- **Gazebo**：Fortress
+- **Gazebo**：Gazebo Classic 11（通过 `gazebo_ros` 启动）
 - **Livox-SDK2**：实机模式需要；已预编译于 `src/livox_ros_driver2/3rdparty/`，支持 amd64/arm64
 
 ## 2. 构建
 
 ```bash
-source /opt/ros/humble/setup.bash
-cd scripts
-./build.sh
+source scripts/setup_env.sh
+./scripts/build.sh
+source install/setup.bash
 ```
 
 构建脚本等价于：
 
 ```bash
-colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_CUDA=OFF
 ```
 
-每次修改源代码后需重新构建。启动任何节点前确保已执行 `source install/setup.bash`。
+每次修改源代码后需重新构建。手动启动节点前，依次执行 `source scripts/setup_env.sh` 和 `source install/setup.bash`；项目脚本会自动加载前者。
 
 ## 3. 快速开始
 
@@ -66,16 +66,26 @@ cd scripts
 此命令启动 Gazebo、FAST-LIO、SLAM Toolbox、Nav2 和 GUI 遥控窗口。使用 WASD 键驾驶机器人遍历环境。覆盖足够面积后保存地图：
 
 ```bash
-./save_map.sh       # 保存 2D 占用栅格地图至 src/me_nav2_bringup/map/
-./save_pcd.sh       # 保存 3D 点云，手动移至 src/me_nav2_bringup/pcd/
+./save_map.sh       # 以 YYYYMMDD_HHMMSS 命名，保存至 src/me_nav2_bringup/map/
+./save_pcd.sh       # 以 YYYYMMDD_HHMMSS.pcd 命名，直接保存至 src/me_nav2_bringup/pcd/
 ```
+
+关闭当前项目启动的 ROS 2/Gazebo 程序：
+
+```bash
+./stop_all.sh
+```
+
+执行前可使用 `./stop_all.sh --dry-run` 预览将被关闭的进程。
+
+> 注意：该脚本会关闭当前用户有权限终止的所有 ROS Humble 节点，包括同机运行的非本项目节点。
 
 ### 3.2 仿真导航
 
 修改以下文件，指向新保存的地图和点云：
 
 - `src/me_nav2_bringup/launch/my_nav2_launch.py` — 设置 `map_yaml_file`
-- `src/registration/small_gicp_relocalization/launch/small_gicp_relocalization_launch.py` — 设置 `prior_pcd_file`
+- `src/registration/global_relocalization_kiss_matcher/launch/global_kiss_matcher_relocalization_launch.py` — 设置默认启用方案的 `prior_pcd_file`（切换为纯 small_gicp 时修改其对应 launch 文件）
 
 然后启动：
 
@@ -102,7 +112,7 @@ cd scripts
 ./nav2_real.sh
 ```
 
-包含 `small_gicp_relocalization`，基于先验 PCD 地图进行重定位。
+默认包含 `global_relocalization_kiss_matcher`，基于先验 PCD 地图进行全局初始化与连续重定位。
 
 ### 3.5 全局重定位：三种方案
 
@@ -128,7 +138,7 @@ vim src/registration/global_relocalization_kiss_matcher/launch/global_kiss_match
 
 启动时二选一即可，同一时间只能有一个节点发布 `map` &rarr; `odom`。
 
-纯 small_gicp 方案通常已集成在导航脚本中：
+导航脚本当前默认集成 KISS-Matcher + small_gicp：
 
 ```bash
 source install/setup.bash
@@ -138,19 +148,14 @@ cd scripts
 ./nav2_real.sh
 ```
 
-如果要使用 KISS-Matcher + small_gicp，请先确保 `scripts/nav2_sim.sh` / `scripts/nav2_real.sh` 中没有同时启动 `small_gicp_relocalization`，然后单独启动全局重定位节点：
+如需切换为纯 small_gicp，请在 `scripts/nav2_sim.sh` / `scripts/nav2_real.sh` 中注释 KISS-Matcher 启动段，并取消注释 small_gicp 启动段。不要同时启动两种方案。
 
 ```bash
 source install/setup.bash
 cd scripts
 
-# 1. 启动仿真或实机导航主流程
-./nav2_sim.sh
-# 或
-./nav2_real.sh
-
-# 2. 启动 KISS-Matcher 全局重定位节点
-ros2 launch global_relocalization_kiss_matcher global_kiss_matcher_relocalization_launch.py
+# 纯 small_gicp 单独启动示例（仿真）
+ros2 launch small_gicp_relocalization small_gicp_relocalization_launch.py use_sim_time:=true
 ```
 
 判断是否成功：
@@ -164,7 +169,7 @@ ros2 topic hz /registered_scan
 
 ## 4. 功能包
 
-工作空间包含 **19 个 ROS 2 功能包**，位于 `src/` 下：
+`colcon` 当前识别 **33 个 ROS 2 功能包**；下面列出工作空间中的主要功能包：
 
 **里程计与定位** (`src/localization/`)
 
@@ -245,7 +250,7 @@ ros2 topic hz /registered_scan
 
 ### 5.4 仿真与实机差异
 
-仿真模式将 Livox 硬件驱动替换为 Gazebo 射线传感器插件，使用 `get_urdf` 替代 `gld_robot_description`。LIO 管线在仿真中使用 `use_sim_time=true`；Nav2 始终使用 `false`。
+仿真模式将 Livox 硬件驱动替换为 Gazebo 射线传感器插件，使用 `get_urdf` 替代 `gld_robot_description`。仿真入口统一传入 `use_sim_time=true`，实机入口统一传入 `false`；FAST-LIO 的 `lidar_type` 分别为仿真 `5`、MID-360 实机 `4`。
 
 ### 5.5 `global_relocalization_kiss_matcher` 参数
 
@@ -277,7 +282,7 @@ ros2 topic hz /registered_scan
 当前 launch 文件给出的工作空间默认值为：
 
 ```text
-prior_pcd_file: /home/pio/Nav2_3D_ws/src/me_nav2_bringup/pcd/nav_test_4_27.pcd
+prior_pcd_file: <me_nav2_bringup 的 share 目录>/pcd/nav_test_4_27.pcd
 input_cloud_topic: /registered_scan
 map_frame: map
 odom_frame: odom

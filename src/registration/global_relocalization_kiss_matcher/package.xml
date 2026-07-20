@@ -25,6 +25,9 @@
   <depend>gtsam</depend>
   <depend>libomp-dev</depend>
 
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>me_nav2_bringup</exec_depend>
+
   <export>
     <build_type>ament_cmake</build_type>
   </export>

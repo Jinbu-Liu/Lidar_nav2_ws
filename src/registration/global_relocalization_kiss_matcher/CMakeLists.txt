@@ -25,15 +25,23 @@ find_package(TBB REQUIRED)
 find_package(robin REQUIRED)
 find_package(kiss_matcher REQUIRED)
 
-# Load small_gicp
-set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
-include(FetchContent)
-FetchContent_Declare(
-  small_gicp
-  GIT_REPOSITORY https://github.com/koide3/small_gicp
-  GIT_TAG master
-)
-FetchContent_MakeAvailable(small_gicp)
+# Load small_gicp. Prefer a preinstalled package so offline builds do not
+# download and install a duplicate copy into this ROS package's prefix.
+find_package(small_gicp QUIET)
+if(NOT small_gicp_FOUND)
+  set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+  include(FetchContent)
+  FetchContent_Declare(
+    small_gicp
+    GIT_REPOSITORY https://github.com/koide3/small_gicp
+    GIT_TAG master
+  )
+  FetchContent_MakeAvailable(small_gicp)
+endif()
+
+if(TARGET small_gicp::small_gicp AND NOT TARGET small_gicp)
+  add_library(small_gicp ALIAS small_gicp::small_gicp)
+endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(nav_msgs REQUIRED)
